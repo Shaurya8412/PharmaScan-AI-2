@@ -49,7 +49,7 @@ ASPIRIN_SPEC = {
     "category": "NSAID / Analgesic & Antiplatelet",
     "fda_ndc_code": "67777-157-01",
     "gs1_gtin": "00367777157016",
-    "manufacturer": "Bayer Healthcare / LNK International / Perrigo",
+    "manufacturer": "Reckitt Benckiser (Disprin) / Bayer Healthcare / LNK International / Perrigo",
     "active_ingredient": "Aspirin / Acetylsalicylic Acid (325mg)",
     "form": "Round Bi-Convex Tablet",
     "shape_type": "Round Tablet",
@@ -62,8 +62,8 @@ ASPIRIN_SPEC = {
         "average_weight_mg": 375.0,
         "aspect_ratio": 1.00,
         "bevel_angle_deg": 40,
-        "engraving_stamp": "ASPIRIN (Radial Deboss) / '44 157' or 'A1' / 'A2'",
-        "score_line": "Single Central Transverse Score or Debossed"
+        "engraving_stamp": "DISPRIN (Embossed Emblem & Score) / ASPIRIN (Radial Deboss) / '44 157' / 'A1' / 'A2'",
+        "score_line": "Single Central Transverse Score or Debossed Disprin Cross-Sword Line"
     },
     "color_spec": {
         "h": 0, "s": 0, "l": 96,
@@ -86,6 +86,16 @@ ASPIRIN_SPEC = {
     "storage": "Store at controlled room temperature 20°C - 25°C (68°F - 77°F). Protect from moisture and heat. Discard if strong acetic (vinegar) odor is detected.",
     "counterfeit_risk_alert": "Critical risk: Substandard and counterfeit aspirin batches frequently contain chalk or starch binders with zero active acetylsalicylic acid, creating life-threatening failure of antiplatelet cardioprotection in cardiac patients.",
     "image_references": [
+        {
+            "filename": "aspirin_disprin_debossed.png",
+            "title": "Disprin Soluble Aspirin Tablet // Debossed Emblem & Score Line",
+            "description": "Authentic Disprin soluble aspirin tablet featuring centered uppercase 'DISPRIN' engraving, distinctive upper sword/hilt emblem, and lower vertical score line."
+        },
+        {
+            "filename": "aspirin_plain_reverse.png",
+            "title": "Aspirin / Disprin Round Tablet // Smooth Reverse Face",
+            "description": "Uniform matte white reverse face of round bi-convex aspirin tablet demonstrating intact perimeter bevel, standard reflectivity, and zero chalky friability degradation."
+        },
         {
             "filename": "aspirin_44_157_dual.png",
             "title": "Aspirin 325mg Dual-Face // Imprint 44 157",
