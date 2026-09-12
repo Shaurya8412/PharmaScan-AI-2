@@ -1,4 +1,4 @@
-﻿"""
+"""
 PharmaScan AI - Ground-Truth Reference Verification & Embedding Matcher
 Compares uploaded medicine packaging/pill against verified ground-truth reference image embeddings.
 """
@@ -19,7 +19,7 @@ from pharmascan_ml.cnn_model import get_or_create_cnn_model, get_cnn_transforms
 
 _REFERENCE_CACHE = {}
 
-def get_reference_anchors(medicine_id="aspirin-325"):
+def get_reference_anchors(medicine_id="disprin-350"):
     """
     Loads and precomputes neural embeddings & visual descriptors for certified reference images.
     """
@@ -28,7 +28,7 @@ def get_reference_anchors(medicine_id="aspirin-325"):
         return _REFERENCE_CACHE[medicine_id]
 
     base_dir = os.path.join(os.path.dirname(__file__), "..", "pharmascan_data", "reference_images")
-    med_dir = os.path.join(base_dir, "aspirin" if "aspirin" in medicine_id.lower() else medicine_id)
+    med_dir = os.path.join(base_dir, "aspirin" if ("aspirin" in medicine_id.lower() or "disprin" in medicine_id.lower()) else medicine_id)
 
     if not os.path.exists(med_dir):
         return []
@@ -79,7 +79,7 @@ def get_reference_anchors(medicine_id="aspirin-325"):
     _REFERENCE_CACHE[medicine_id] = anchors
     return anchors
 
-def match_against_reference_dataset(image_input, medicine_id="aspirin-325"):
+def match_against_reference_dataset(image_input, medicine_id="disprin-350"):
     """
     Compares the uploaded image against verified reference image embeddings.
     Returns composite reference fidelity score (0-100%), best anchor match, and feature breakdown.

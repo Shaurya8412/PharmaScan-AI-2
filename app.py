@@ -1135,7 +1135,7 @@ with tab_scan:
             format_func=lambda x: f"{MEDICINE_REGISTRY[x]['brand_name']} ({MEDICINE_REGISTRY[x]['form']})"
         )
 
-        if selected_med_id != "aspirin-325":
+        if selected_med_id not in ["disprin-350", "aspirin-325"]:
             custom_med_name = st.text_input(
                 "Target Medicine / Packaging Identifier (Optional):",
                 value=st.session_state.get("custom_med_name", ""),
