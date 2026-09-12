@@ -115,6 +115,5 @@ ASPIRIN_SPEC = {
 }
 
 MEDICINE_REGISTRY = {
-    "aspirin-325": ASPIRIN_SPEC,
-    "general-inspection": DEFAULT_SPEC
+    "aspirin-325": ASPIRIN_SPEC
 }

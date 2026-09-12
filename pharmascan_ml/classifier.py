@@ -10,7 +10,7 @@ from pharmascan_ml.cnn_model import predict_with_cnn
 
 from pharmascan_ml.reference_matcher import match_against_reference_dataset
 
-def predict_medicine_authenticity(image_input, selected_medicine_id="general-inspection"):
+def predict_medicine_authenticity(image_input, selected_medicine_id="aspirin-325"):
     """
     High-Accuracy Ensemble Predictor Pipeline.
     Evaluates PyTorch CNN Deep Learning, OpenCV Morphological Features, and
