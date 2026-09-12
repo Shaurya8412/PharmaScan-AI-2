@@ -1295,6 +1295,20 @@ with tab_scan:
                 </div>
             """, unsafe_allow_html=True)
             dim_spec = med_info.get("dimensions", {})
+            imprint_info = prediction.get("imprint_analysis") or prediction.get("reference_match", {}).get("imprint_analysis", {})
+            imprint_state = imprint_info.get("imprint_state", "UNKNOWN")
+            measured_stamp = imprint_info.get("measured_imprint", "Standard Surface")
+            if imprint_state == "AUTHENTIC_DISPRIN":
+                imprint_cal_state = "PASS"
+            elif imprint_state == "CONTRADICTORY_FOREIGN_IMPRINT":
+                imprint_cal_state = "MISMATCH (REJECT)"
+            elif imprint_state == "UNIMPRINTED_OR_BLANK":
+                imprint_cal_state = "UNVERIFIED (FLIP PILL)"
+            else:
+                imprint_cal_state = "PASS"
+
+            target_stamp = dim_spec.get("engraving_stamp", "DISPRIN & Sword Emblem")
+
             dim_df = pd.DataFrame([
                 {
                     "Geometric Descriptor": "Shape Classification",
@@ -1319,6 +1333,12 @@ with tab_scan:
                     "Measured Value": f"{raw_f.get('circularity')}",
                     "Target Spec": f"{med_info.get('tolerance', {}).get('circularity_min', 0.15)} - {med_info.get('tolerance', {}).get('circularity_max', 1.00)}",
                     "Calibration State": "MATCH" if raw_f.get('circularity', 0.8) >= 0.18 else "ROUGH CONTOUR"
+                },
+                {
+                    "Geometric Descriptor": "Surface Imprint & Deboss",
+                    "Measured Value": measured_stamp,
+                    "Target Spec": target_stamp,
+                    "Calibration State": imprint_cal_state
                 }
             ])
             st.table(dim_df)

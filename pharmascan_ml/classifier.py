@@ -124,22 +124,49 @@ def predict_medicine_authenticity(image_input, selected_medicine_id="disprin-350
                 "detail": f"Dull discolored body (Luminosity: {curr_l}%, Saturation: {curr_s}%)."
             })
 
-    # 6. Imprint Engraving Sharpness (Weight 10%)
+    # 6. Imprint & Debossing Verification (Weight 15%)
     stamp_score = 100.0
-    if features["imprint_sharpness"] < 15.0:
-        penalty = min(20.0, (15.0 - features["imprint_sharpness"]) * 0.8)
-        stamp_score -= penalty
+    imprint_info = ref_match.get("imprint_analysis", {})
+    imprint_state = imprint_info.get("imprint_state", "UNKNOWN")
+    imprint_matches = imprint_info.get("matches", 0)
+    kp_count = imprint_info.get("keypoint_count", 0)
+
+    if imprint_state == "CONTRADICTORY_FOREIGN_IMPRINT":
+        penalty = 65.0
+        stamp_score = 8.0
         score_points -= penalty
         risk_factors.append({
-            "vector": "Imprint Engraving Clarity",
-            "severity": "MEDIUM",
-            "detail": f"Imprint logo sharpness is low ({features['imprint_sharpness']}/100). Suggests smudged or missing manufacturer stamp."
+            "vector": "Contradictory Pill Imprint & Deboss",
+            "severity": "CRITICAL",
+            "detail": f"Contradictory foreign imprint detected ({kp_count} engraving features, {imprint_matches} reference matches). Internal deboss stamp does NOT match authorized 'DISPRIN' lettering and sword emblem standard."
         })
+    elif imprint_state == "UNIMPRINTED_OR_BLANK":
+        penalty = 22.0
+        stamp_score = 65.0
+        score_points -= penalty
+        risk_factors.append({
+            "vector": "Unverified Imprint (Blank Face)",
+            "severity": "MEDIUM",
+            "detail": f"Debossed 'DISPRIN' lettering and sword emblem not detected on this face ({imprint_matches} alignment anchors). If this is the reverse face, flip tablet to verify debossed face."
+        })
+    elif imprint_state == "AUTHENTIC_DISPRIN":
+        stamp_score = 98.0
+    else:
+        # Fallback to general sharpness
+        if features.get("imprint_sharpness", 0) < 15.0:
+            penalty = min(20.0, (15.0 - features["imprint_sharpness"]) * 0.8)
+            stamp_score -= penalty
+            score_points -= penalty
+            risk_factors.append({
+                "vector": "Imprint Engraving Clarity",
+                "severity": "MEDIUM",
+                "detail": f"Imprint logo sharpness is low ({features['imprint_sharpness']}/100). Suggests smudged or missing manufacturer stamp."
+            })
 
     # Check for any CRITICAL severity risk factors (instant failure ceiling)
     has_critical_failure = any(rf.get("severity") == "CRITICAL" for rf in risk_factors)
     if has_critical_failure:
-        score_points = min(score_points, 28.0)
+        score_points = min(score_points, 20.0)
 
     # Final Ensemble Authenticity Percentage
     authenticity_score = int(max(8, min(98, round(score_points))))
@@ -160,11 +187,11 @@ def predict_medicine_authenticity(image_input, selected_medicine_id="disprin-350
     # Explainable AI (XAI) Feature Importance Contributions
     shapley_contributions = {
         "PyTorch PillNetCNN": round(cnn_score * 0.20, 1),
-        "Ground-Truth Ref Anchor Match": round(ref_score * 0.25, 1),
+        "Ground-Truth Ref Anchor Match": round(ref_score * 0.20, 1),
         "Physical Dimensions": round(dimension_score * 0.20, 1),
         "Solidity & Convexity": round(solidity_score * 0.15, 1),
         "Color Spectrum": round(color_match_score * 0.10, 1),
-        "Imprint Sharpness": round(stamp_score * 0.10, 1)
+        "Imprint & Deboss Match": round(stamp_score * 0.15, 1)
     }
 
     return {
@@ -175,6 +202,7 @@ def predict_medicine_authenticity(image_input, selected_medicine_id="disprin-350
         "description": description,
         "cnn_info": cnn_results,
         "reference_match": ref_match,
+        "imprint_analysis": imprint_info,
         "medicine_info": benchmark,
         "risk_factors": risk_factors,
         "feature_scores": {
@@ -183,7 +211,7 @@ def predict_medicine_authenticity(image_input, selected_medicine_id="disprin-350
             "Physical Dimensions": max(10, int(round(dimension_score))),
             "Boundary Solidity": max(10, int(round(solidity_score))),
             "Color Match": max(10, int(round(color_match_score))),
-            "Imprint Clarity": max(10, int(round(stamp_score)))
+            "Imprint & Deboss Match": max(10, int(round(stamp_score)))
         },
         "shapley_contributions": shapley_contributions,
         "raw_features": features,
