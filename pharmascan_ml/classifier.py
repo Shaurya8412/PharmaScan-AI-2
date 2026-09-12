@@ -132,17 +132,17 @@ def predict_medicine_authenticity(image_input, selected_medicine_id="disprin-350
     kp_count = imprint_info.get("keypoint_count", 0)
 
     if imprint_state == "CONTRADICTORY_FOREIGN_IMPRINT":
-        penalty = 65.0
-        stamp_score = 8.0
+        penalty = 75.0
+        stamp_score = 5.0
         score_points -= penalty
         risk_factors.append({
             "vector": "Contradictory Pill Imprint & Deboss",
             "severity": "CRITICAL",
-            "detail": f"Contradictory foreign imprint detected ({kp_count} engraving features, {imprint_matches} reference matches). Internal deboss stamp does NOT match authorized 'DISPRIN' lettering and sword emblem standard."
+            "detail": f"{imprint_info.get('measured_imprint', 'Contradictory foreign imprint detected')}. Debossed lettering/engraving does NOT match authorized 'DISPRIN' and sword emblem standard."
         })
     elif imprint_state == "UNIMPRINTED_OR_BLANK":
-        penalty = 22.0
-        stamp_score = 65.0
+        penalty = 25.0
+        stamp_score = 60.0
         score_points -= penalty
         risk_factors.append({
             "vector": "Unverified Imprint (Blank Face)",
@@ -166,7 +166,7 @@ def predict_medicine_authenticity(image_input, selected_medicine_id="disprin-350
     # Check for any CRITICAL severity risk factors (instant failure ceiling)
     has_critical_failure = any(rf.get("severity") == "CRITICAL" for rf in risk_factors)
     if has_critical_failure:
-        score_points = min(score_points, 20.0)
+        score_points = min(score_points, 8.0)
 
     # Final Ensemble Authenticity Percentage
     authenticity_score = int(max(8, min(98, round(score_points))))

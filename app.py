@@ -18,6 +18,12 @@ import datetime
 import hashlib
 
 # Import PharmaScan AI Modules
+import importlib
+import pharmascan_ml.reference_matcher
+import pharmascan_ml.classifier
+importlib.reload(pharmascan_ml.reference_matcher)
+importlib.reload(pharmascan_ml.classifier)
+
 from pharmascan_data.medicine_database import MEDICINE_REGISTRY, DEFAULT_SPEC
 from pharmascan_ml.classifier import predict_medicine_authenticity
 from pharmascan_ml.heatmap_generator import generate_anomaly_heatmap

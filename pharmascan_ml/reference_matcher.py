@@ -172,83 +172,193 @@ def match_against_reference_dataset(image_input, medicine_id="disprin-350"):
         "reference_verdict": "AUTHENTIC_MATCH" if normalized_fidelity >= 75 else ("INCONCLUSIVE" if normalized_fidelity >= 50 else "DEVIATION_DETECTED")
     }
 
+_EASYOCR_READER = None
+
+def get_ocr_reader():
+    """Lazy loads EasyOCR engine with local weights."""
+    global _EASYOCR_READER
+    if _EASYOCR_READER is None:
+        try:
+            import easyocr
+            _EASYOCR_READER = easyocr.Reader(['en'], gpu=False, verbose=False)
+        except Exception:
+            _EASYOCR_READER = False
+    return _EASYOCR_READER
+
+def crop_pill_roi(bgr):
+    """
+    Normalizes pill image. If image is already roughly square (aspect ratio < 1.35),
+    it directly resizes to 400x400. If it is a wide camera shot (e.g. 16:9), it locates
+    the central foreground pill and crops it.
+    """
+    H, W = bgr.shape[:2]
+    aspect = max(H, W) / max(1, min(H, W))
+    
+    # If already approximately square (standard cropped pill samples), direct resize
+    if aspect < 1.35:
+        return cv2.resize(bgr, (400, 400))
+        
+    # For wide camera frames, isolate the central foreground object
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 40, 120)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
+    cnts, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    valid_cnts = []
+    for c in cnts:
+        x, y, w, h = cv2.boundingRect(c)
+        area = w * h
+        if (H * W * 0.04) <= area <= (H * W * 0.85):
+            cx, cy = x + w / 2, y + h / 2
+            dist_to_center = np.hypot(cx - W / 2, cy - H / 2)
+            valid_cnts.append((dist_to_center, (x, y, w, h)))
+            
+    if valid_cnts:
+        valid_cnts.sort(key=lambda item: item[0])
+        _, (x, y, w, h) = valid_cnts[0]
+        pad_x = int(w * 0.08)
+        pad_y = int(h * 0.08)
+        x1, y1 = max(0, x - pad_x), max(0, y - pad_y)
+        x2, y2 = min(W, x + w + pad_x), min(H, y + h + pad_y)
+        crop = bgr[y1:y2, x1:x2]
+        ch, cw = crop.shape[:2]
+        max_dim = max(ch, cw)
+        sq = np.zeros((max_dim, max_dim, 3), dtype=np.uint8)
+        sq[:] = np.mean(crop, axis=(0, 1)).astype(np.uint8)
+        sq[(max_dim - ch) // 2 : (max_dim - ch) // 2 + ch, (max_dim - cw) // 2 : (max_dim - cw) // 2 + cw] = crop
+        return cv2.resize(sq, (400, 400))
+        
+    return cv2.resize(bgr, (400, 400))
+
+def read_pill_imprint_text(bgr_pill):
+    """Uses EasyOCR to detect and read debossed text on the tablet face."""
+    reader = get_ocr_reader()
+    if not reader:
+        return ""
+        
+    try:
+        # Pass 1: Standard orientation
+        results = reader.readtext(bgr_pill, detail=0)
+        words = [w.strip().upper() for w in results if len(w.strip()) >= 2]
+        
+        # Pass 2: 180° rotation if unread (handles inverted pill orientation)
+        if not words:
+            bgr_180 = cv2.rotate(bgr_pill, cv2.ROTATE_180)
+            results_180 = reader.readtext(bgr_180, detail=0)
+            words = [w.strip().upper() for w in results_180 if len(w.strip()) >= 2]
+            
+        # Pass 3: CLAHE contrast enhancement for low-contrast debossing
+        if not words:
+            gray = cv2.cvtColor(bgr_pill, cv2.COLOR_BGR2GRAY)
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            enhanced = clahe.apply(gray)
+            enhanced_bgr = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+            results_clahe = reader.readtext(enhanced_bgr, detail=0)
+            words = [w.strip().upper() for w in results_clahe if len(w.strip()) >= 2]
+
+        return " ".join(words)
+    except Exception:
+        return ""
+
 def analyze_pill_imprint(image_input, medicine_id="disprin-350"):
     """
-    Sub-pixel SIFT Keypoint & Homography Imprint Verification.
-    Compares the debossed imprint/engraving against certified authentic Disprin stamps.
-    Detects whether the pill contains:
-    1. 'AUTHENTIC_DISPRIN' (Matches 'DISPRIN' debossing and sword emblem)
-    2. 'CONTRADICTORY_FOREIGN_IMPRINT' (Contains text/engraving, but NOT Disprin - e.g. 'PARA', 'GSK', '44 157')
-    3. 'UNIMPRINTED_OR_BLANK' (Smooth / plain face with no debossing)
+    Sub-pixel SIFT Keypoint & EasyOCR Imprint Verification Engine.
+    Reads debossed text (e.g. 'DOLO', '650', 'DISPRIN') and measures micro-geometry against
+    certified Disprin debossing and sword emblem standards.
     """
     if isinstance(image_input, Image.Image):
         pil_img = image_input.convert('RGB')
         np_img = np.array(pil_img)
-        bgr = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
+        bgr_raw = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
     elif isinstance(image_input, np.ndarray):
-        bgr = image_input.copy()
+        bgr_raw = image_input.copy()
     else:
-        return {"imprint_state": "UNKNOWN", "matches": 0, "fidelity": 0, "measured_imprint": "Unknown"}
+        return {"imprint_state": "UNKNOWN", "matches": 0, "fidelity": 0, "measured_imprint": "Unknown", "ocr_text": ""}
 
-    # Normalize to 400x400
-    bgr_norm = cv2.resize(bgr, (400, 400))
+    # 1. Automatically locate and crop pill face
+    bgr_norm = crop_pill_roi(bgr_raw)
     gray = cv2.cvtColor(bgr_norm, cv2.COLOR_BGR2GRAY)
 
-    # Locate reference debossed Disprin image
+    # 2. Locate certified reference debossed Disprin image
     base_dir = os.path.join(os.path.dirname(__file__), "..", "pharmascan_data", "reference_images")
     ref_dir = os.path.join(base_dir, "aspirin" if ("aspirin" in medicine_id.lower() or "disprin" in medicine_id.lower()) else medicine_id)
     ref_path = os.path.join(ref_dir, "aspirin_disprin_debossed.png")
 
     if not os.path.exists(ref_path):
-        return {"imprint_state": "AUTHENTIC_DISPRIN", "matches": 25, "fidelity": 95, "measured_imprint": "Standard Deboss"}
+        return {"imprint_state": "AUTHENTIC_DISPRIN", "matches": 25, "fidelity": 95, "measured_imprint": "Standard Deboss", "ocr_text": ""}
 
     ref_bgr = cv2.imread(ref_path)
     ref_gray = cv2.cvtColor(cv2.resize(ref_bgr, (400, 400)), cv2.COLOR_BGR2GRAY)
 
-    # Central Region of Interest where imprint & emblem reside (80:320, 80:320)
+    # 3. Central Region of Interest for SIFT (80:320, 80:320)
     roi_test = gray[80:320, 80:320]
     roi_ref = ref_gray[80:320, 80:320]
 
-    # Use SIFT to extract fine structural edges & debossed lettering keypoints
+    # SIFT micro-contour extraction
     sift = cv2.SIFT_create(contrastThreshold=0.03, edgeThreshold=10)
     kp_ref, des_ref = sift.detectAndCompute(roi_ref, None)
     kp_test, des_test = sift.detectAndCompute(roi_test, None)
 
     kp_count = len(kp_test) if kp_test else 0
+    matches = 0
 
-    if des_ref is None or des_test is None or len(des_ref) < 2 or len(des_test) < 2:
-        return {
-            "imprint_state": "UNIMPRINTED_OR_BLANK",
-            "matches": 0,
-            "fidelity": 10,
-            "measured_imprint": "Unimprinted / Smooth Face",
-            "keypoint_count": kp_count
-        }
+    if des_ref is not None and des_test is not None and len(des_ref) >= 2 and len(des_test) >= 2:
+        bf = cv2.BFMatcher(cv2.NORM_L2)
+        raw_matches = bf.knnMatch(des_ref, des_test, k=2)
+        good = []
+        for m in raw_matches:
+            if len(m) == 2 and m[0].distance < 0.75 * m[1].distance:
+                good.append(m[0])
+        matches = len(good)
 
-    bf = cv2.BFMatcher(cv2.NORM_L2)
-    raw_matches = bf.knnMatch(des_ref, des_test, k=2)
-    good = []
-    for m in raw_matches:
-        if len(m) == 2 and m[0].distance < 0.75 * m[1].distance:
-            good.append(m[0])
+    # 4. OCR Text Recognition on Pill Face
+    ocr_text = read_pill_imprint_text(bgr_norm)
 
-    matches = len(good)
+    # Target authentic keywords vs foreign pill keywords
+    disprin_variations = ["DISPRIN", "DISPRIM", "DISPRUM", "DISPRN", "DISP", "PRIN"]
+    foreign_keywords = [
+        "DOLO", "650", "PARA", "PARACETAMOL", "GSK", "AMO", "500", "44", "157",
+        "ASPIRIN", "BAYER", "CALPOL", "CIPLA", "PANADOL", "TYLENOL"
+    ]
+
+    has_disprin_kw = any(kw in ocr_text for kw in disprin_variations)
+    has_foreign_kw = any(kw in ocr_text for kw in foreign_keywords)
+
     fidelity = int(min(99, max(5, round((matches / 25.0) * 100.0))))
 
-    if matches >= 15:
+    # 5. Reconcile OCR Text & SIFT Micro-Geometry
+    if has_foreign_kw:
+        imprint_state = "CONTRADICTORY_FOREIGN_IMPRINT"
+        measured_text = f"Foreign Deboss Read: '{ocr_text}' (Mismatch with DISPRIN)"
+        fidelity = 5
+    elif has_disprin_kw:
+        imprint_state = "AUTHENTIC_DISPRIN"
+        measured_text = f"Authorized Deboss Read: '{ocr_text}' ({matches} Alignment Anchors)"
+        fidelity = max(fidelity, 95)
+    elif len(ocr_text) > 0 and not has_disprin_kw and not any(c.isdigit() for c in ocr_text if c not in "0123456789"):
+        # Detected unexpected foreign text
+        imprint_state = "CONTRADICTORY_FOREIGN_IMPRINT"
+        measured_text = f"Foreign Imprint Detected: '{ocr_text}'"
+        fidelity = 8
+    elif matches >= 15:
         imprint_state = "AUTHENTIC_DISPRIN"
         measured_text = f"DISPRIN Deboss & Sword ({matches} Alignment Anchors)"
-    elif kp_count >= 15 and matches <= 5:
+    elif kp_count >= 12 and matches <= 5:
         imprint_state = "CONTRADICTORY_FOREIGN_IMPRINT"
-        measured_text = f"Foreign / Mismatched Deboss ({kp_count} Foreign Features)"
+        measured_text = f"Foreign Deboss Micro-Contours ({kp_count} Foreign Features)"
+        fidelity = 10
     else:
         imprint_state = "UNIMPRINTED_OR_BLANK"
-        measured_text = f"Unimprinted / Plain Face ({matches} Anchors)"
+        measured_text = f"Unimprinted / Smooth Face ({matches} Anchors)"
+        fidelity = 15
 
     return {
         "imprint_state": imprint_state,
         "matches": matches,
         "fidelity": fidelity,
         "measured_imprint": measured_text,
+        "ocr_text": ocr_text,
         "keypoint_count": kp_count
     }
